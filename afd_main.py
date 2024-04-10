@@ -60,7 +60,6 @@ def interp_autom( palavra: str ) -> str:
         
         i += 1
         
-
     #se na ultima iteração o estado atual for diferente do Final
     if estado_atual not in F:
         return f"Palavra {palavra} nao e reconhecida.\n [Caminho: {'>'.join(caminho)} {estado_atual}, {estado_atual} nao e final]\n"
