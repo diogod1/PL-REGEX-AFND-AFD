@@ -1,89 +1,134 @@
-import json
+import json, sys
 
-def ler_expressao_regular(nome_arquivo):
-    try:
-        with open(nome_arquivo, 'r') as arquivo:
-            expressao_regular = json.load(arquivo)
-            print(f"Arquivo '{nome_arquivo}' encontrado.")
-        return expressao_regular
-    except FileNotFoundError:
-        print(f"Arquivo '{nome_arquivo}' não encontrado.")
-        return None
-    except json.JSONDecodeError:
-        print(f"O arquivo '{nome_arquivo}' não contém um JSON válido.")
-        return None
+exec_converter_er_afnd: bool = False
 
-def construir_afnd(er):
-    if 'simb' in er:  # É um símbolo do alfabeto
-        estado_inicial = 'q0'
-        estado_final = 'q1'
-        alfabeto = {er['simb']}
-        transicoes = {'q0': {er['simb']: {'q1'}}}
-        return {'estados': {'q0', 'q1'}, 'alfabeto': alfabeto, 'estado_inicial': 'q0', 'estados_finais': {'q1'}, 'transicoes': transicoes}
 
-    elif 'op' in er:
-        if er['op'] == 'alt' or er['op'] == 'seq':  # Operador de alternativa ou concatenação
-            afnd1 = construir_afnd(er['args'][0])
-            afnd2 = construir_afnd(er['args'][1])
-            if afnd1 is None or afnd2 is None:  # Verifica se alguma das expressões é inválida
-                return None
-            novo_estado_inicial = 'q0'
-            novo_estado_final = 'q' + str(len(afnd1['estados']) + len(afnd2['estados']))
-            alfabeto = afnd1['alfabeto'] | afnd2['alfabeto']
 
-            transicoes = {'q0': {}}
-            transicoes['q0'].update(afnd1['transicoes'].get(afnd1['estado_inicial'], {}))
-            transicoes['q0'].update(afnd2['transicoes'].get(afnd2['estado_inicial'], {}))
-            transicoes['q0']['epsilon'] = {afnd1['estado_inicial'], afnd2['estado_inicial']}
+def cria_novo_estado(estados):
+    estado = f'q{len(estados)}'
+    estados.append(f'q{len(estados)}')
+    return estado
 
-            for estado in afnd1['estados'] | afnd2['estados']:
-                transicoes[estado] = afnd1['transicoes'].get(estado, {}).copy()
-                transicoes[estado].update(afnd2['transicoes'].get(estado, {}).copy())
-                if estado in afnd1['estados_finais'] or estado in afnd2['estados_finais']:
-                    transicoes[estado]['epsilon'] = transicoes.get(estado, {}).get('epsilon', set()) | {novo_estado_final}
+def insere_trans(args, estados, simbolos, transicoes):
+    inicio = cria_novo_estado(estados)
+    fim = cria_novo_estado(estados)
 
-            return {'estados': afnd1['estados'] | afnd2['estados'] | {novo_estado_inicial, novo_estado_final}, 'alfabeto': alfabeto, 'estado_inicial': novo_estado_inicial, 'estados_finais': {novo_estado_final}, 'transicoes': transicoes}
+    for arg in args:
+        subInicio, subFim = analisa_regex(arg, estados, simbolos, transicoes)
 
-        elif er['op'] == 'kle':  # Operador de fecho de Kleene
-            afnd = construir_afnd(er['args'][0])
-            if afnd is None:  # Verifica se a expressão é inválida
-                return None
-            novo_estado_inicial = 'q0'
-            novo_estado_final = 'q' + str(len(afnd['estados']) + 1)
-            alfabeto = afnd['alfabeto']
+        transicoes.setdefault(inicio, {}).setdefault('', []).append(subInicio)
+        transicoes.setdefault(subFim, {}).setdefault('', []).append(subInicio)
+        transicoes.setdefault(subFim, {}).setdefault('', []).append(fim)
 
-            transicoes = {'q0': {}}
-            transicoes['q0'].update(afnd['transicoes'].get(afnd['estado_inicial'], {}))
-            transicoes['q0']['epsilon'] = {afnd['estado_inicial'], novo_estado_final}
+    return inicio, fim
 
-            for estado in afnd['estados'] | {novo_estado_final}:
-                transicoes[estado] = afnd['transicoes'].get(estado, {}).copy()
-                if estado in afnd['estados_finais']:
-                    transicoes[estado]['epsilon'] = transicoes.get(estado, {}).get('epsilon', set()) | {afnd['estado_inicial'], novo_estado_final}
+def insere_kle(args, estados, simbolos, transicoes):
 
-            return {'estados': afnd['estados'] | {novo_estado_inicial, novo_estado_final}, 'alfabeto': alfabeto, 'estado_inicial': novo_estado_inicial, 'estados_finais': {novo_estado_final}, 'transicoes': transicoes}
+    inicio = cria_novo_estado(estados)
+    fim = cria_novo_estado(estados)
 
-def escrever_afnd_em_arquivo(afnd, nome_arquivo):
-    afnd_dict = {
-        "estados": list(afnd['estados']),
-        "alfabeto": list(afnd['alfabeto']),
-        "estado_inicial": afnd['estado_inicial'],
-        "estados_finais": list(afnd['estados_finais']),
-        "transicoes": afnd['transicoes']
-    }
-    with open(nome_arquivo, 'w') as arquivo:
-        json.dump(afnd_dict, arquivo, indent=4)
+    transicoes.setdefault(inicio, {}).setdefault('', []).append(fim)
 
-def main(): 
-    expressao_regular = ler_expressao_regular('exemplo02.er.json')
-    if expressao_regular:
-        afnd = construir_afnd(expressao_regular)
-        if afnd:
-            escrever_afnd_em_arquivo(afnd, 'afnd.json')
-            print("AFND gerado com sucesso em 'afnd.json'.")
+    for arg in args:
+        subInicio, subFim = analisa_regex(arg, estados, simbolos, transicoes)
+
+        transicoes.setdefault(inicio, {}).setdefault('', []).append(subInicio)
+        transicoes.setdefault(subFim, {}).setdefault('', []).append(subInicio)
+        transicoes.setdefault(subFim, {}).setdefault('', []).append(fim)
+
+    return inicio, fim
+
+def insere_seq(args, estados, alfabeto, caminhos):
+    fimAnterior = None
+    estado_inicio = None
+
+    for arg in args:
+        estado_inicio2, estado_fim2 = analisa_regex(arg, estados, alfabeto, caminhos)
+
+        if fimAnterior: 
+            caminhos.setdefault(fimAnterior, {}).setdefault('', []).append(estado_inicio2)
         else:
-            print("Expressão regular inválida ou não suportada para a construção do AFND.")
-    else:
-        print("Não foi possível ler a expressão regular do arquivo.")
+            estado_inicio = estado_inicio2
 
-main()
+        fimAnterior = estado_fim2
+
+    return estado_inicio, fimAnterior
+
+def insere_altern(args, estados, alfabeto, caminhos):
+    estado_inicio = cria_novo_estado(estados)
+    estado_fim = cria_novo_estado(estados)
+
+    for arg in args:
+        estado_inicio2, estado_fim2 = analisa_regex(arg, estados, alfabeto, caminhos)
+        alfabeto.setdefault(estado_inicio, {}).setdefault('', []).append(estado_inicio2) 
+        alfabeto.setdefault(estado_fim2, {}).setdefault('', []).append(estado_fim) 
+
+    return estado_inicio, estado_fim
+
+def insere_epsilon(estados, caminhos):
+    estado_inicio = cria_novo_estado(estados)
+    estado_fim = cria_novo_estado(estados)
+
+    caminhos[estado_inicio] = {'': [estado_fim]}
+
+    return estado_inicio, estado_fim
+
+def insere_simbolo(simbolo, alfabeto, estados, caminhos):
+    estado_inicio = cria_novo_estado(estados)
+    estado_fim = cria_novo_estado(estados)
+
+    caminhos[estado_inicio] = {simbolo: [estado_fim]}
+
+    if simbolo not in alfabeto:
+        alfabeto.append(simbolo)
+
+    return estado_inicio, estado_fim
+
+def analisa_regex(regex, estados, alfabeto, caminhos):
+
+    operador = regex['op']
+    if 'simb' in regex: 
+        insere_simbolo(regex['simb'], alfabeto, estados, caminhos)
+    elif 'epsilon' in regex:  
+        insere_epsilon(estados, caminhos)
+    elif operador == 'alt':  # operador -> alt
+        insere_altern(regex['args'], estados, alfabeto, caminhos)
+    elif operador == 'seq':  # operador -> seq
+        insere_seq(regex['args'], estados, alfabeto, caminhos)
+    elif operador == 'kle':  # operador -> kle
+        insere_kle(regex['args'], estados, alfabeto, caminhos)
+    elif operador == 'trans': # operador -> trans
+        insere_trans(regex['args'], estados, alfabeto, caminhos)
+
+    return
+
+def converter_er_afnd(output_path: str) -> any:
+
+    alfabeto = []
+    estados = []
+    caminhos = {}
+ 
+    #Definir/abrir o caminho do ficheiro  
+    afpath = "exemplo01.json"
+    with open(afpath, "r", encoding="utf-8") as f:
+        af = json.load(f)
+
+    # Iniciar processo de conversão
+    inicio, fim = analisa_regex(af, estados, alfabeto, caminhos)
+
+    # Verificar se o fim não está nas transições, se não tiver adicionar
+    if fim not in caminhos:
+        caminhos[fim] = {'': []}
+
+    afnd = {
+        "V": alfabeto,
+        "Q": estados,
+        "delta": caminhos,
+        "q0": inicio,
+        "F": [fim]
+    }
+
+    return afnd
+
+afnd = converter_er_afnd("")
+print(afnd)
