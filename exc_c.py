@@ -1,6 +1,9 @@
 import sys  # Importar módulo sys
 import json # Importar módulo json
- 
+
+output = False
+arquivo = ""
+
 # Ler um arquivo JSON
 def read_afnd(file_json):
     with open(file_json, 'r') as file:  # Abre o arquivo .json 
@@ -60,14 +63,9 @@ def convert_afd(afd):
  
     return afd
  
-# Salvar um afd em um arquivo JSON
-def save_afd(afd, arquivo_saida):
-    with open(arquivo_saida, 'w') as file:
-        json.dump(afd, file, indent=4)
- 
 # Gerar o código Graphviz da AFD
 def generate_graph(afd):
-    lines = ['digraph afd {']
+    lines = ['digraph {']
     lines.append('    node [shape = doublecircle]; ' + ' '.join(afd['F']) + ';')
     lines.append('    node [shape = point]; qi;')
     lines.append('    node [shape = circle];')
@@ -83,29 +81,52 @@ def generate_graph(afd):
  
     lines.append('}')
     dot_representation = '\n'.join(lines)
+    # Salva o dot_representation em um arquivo
+    with open("graphviz.gv", "w") as file:
+        file.write(dot_representation)
     print(dot_representation)
  
 # Carrega o AFND do arquivo JSON
-if len(sys.argv) < 2:
-    print("Uso: python script.py")
-    sys.exit(1)
+# if len(sys.argv) < 2:
+#     print("?")
+#     sys.exit(1)
+
+# Salvar um afd em um arquivo JSON
+def save_file(afd, outputf):
+    # Criar uma cópia do AFD para não modificar o original
+    afd_copy = afd.copy()
+
+    print(afd)
+    print(afd_copy)
+    
+    # Converter conjuntos para listas
+    afd_copy["V"] = list(afd_copy["V"])
+    afd_copy["Q"] = list(afd_copy["Q"])
+    for state, transitions in afd_copy["delta"].items():
+        for input_val, end_states in transitions.items():
+            afd_copy["delta"][state][input_val] = list(end_states)
+    afd_copy["F"] = list(afd_copy["F"])
+    
+    # Salvar o AFD serializado em JSON
+    with open(outputf, 'w') as file:
+        json.dump(afd_copy, file, indent=4)
  
 # Assume que o primeiro argumento é o arquivo JSON
-arquivo_afnd = sys.argv[1]
-afnd = read_afnd(arquivo_afnd)
+arquivo = sys.argv[1]
+afnd = read_afnd(arquivo)
 afd = convert_afd(afnd)
- 
+
 # Verifica se o argumento graphviz foi passado
 if '-graphviz' in sys.argv:
     generate_graph(afnd)
  
 # Verifica se o argumento output foi passado
 elif '-output' in sys.argv:
-    indice_output = sys.argv.index('-output')
+    indice_output = sys.argv.index('-output') #Procura a posição do argumento
     if indice_output + 1 < len(sys.argv):
-        arquivo_afd = sys.argv[indice_output + 1]
-        save_afd(afd, arquivo_afd)
+        arquivo = sys.argv[indice_output + 1]
+        save_file(afnd, arquivo)
     else:
-        print("Erro: Tem de especificar o arquivo de saída '-output'.")
+        print("Especifique o arquivo de saída com o argumento '-output'.")
 else:
     print("Comando não reconhecido.")
