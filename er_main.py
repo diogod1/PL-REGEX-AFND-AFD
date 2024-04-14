@@ -1,134 +1,199 @@
 import json, sys
 
-exec_converter_er_afnd: bool = False
+exec_convert_er_afnd: bool = False
+simb,operator,args,epsilon = "simb", "op","args","epsilon"
+opkle, optrans, opseq, opalt = "kle","trans","seq","alt"
+alfabeto,estados,caminhos = [],[],{}
 
 
+if len(sys.argv) == 1:
+    print("Inserir comando!\n")
+    exit(-1)
+else:
+    #Verifica se o ficheiro é um json
+    if not sys.argv[1].endswith('.json'):
+        print("Insira um ficheiro *.json")
+        exit(-1)
+    
+    #Definir/abrir o caminho do ficheiro   
+    afpath = sys.argv[1]
+    with open(afpath, "r", encoding="utf-8") as f:
+        af = json.load(f)  
+    
+    #Função conversão de er -> afnd
+    if(sys.argv[2].lower() == "-output"):  
+        #verifica se tem expressão
+        if len(sys.argv) != 4: 
+          print("Insira nome do ficheiro de saida\n")
+          exit(-1)
+        else: 
+            #executa a função
+            exec_convert_er_afnd = True
+            nome_ficheiro:str = sys.argv[3]
 
-def cria_novo_estado(estados):
-    estado = f'q{len(estados)}'
-    estados.append(f'q{len(estados)}')
-    return estado
+def salvar_ficheiro(afnd, nome_ficheiro):
 
-def insere_trans(args, estados, simbolos, transicoes):
-    inicio = cria_novo_estado(estados)
-    fim = cria_novo_estado(estados)
+    #adicionar .json no fim
+    if not nome_ficheiro.endswith('.json'):
+        nome_ficheiro += ".json"
 
-    for arg in args:
-        subInicio, subFim = analisa_regex(arg, estados, simbolos, transicoes)
+    with open(nome_ficheiro, 'w') as ficheiro:
+        json.dump(afnd, ficheiro, indent=4)
 
-        transicoes.setdefault(inicio, {}).setdefault('', []).append(subInicio)
-        transicoes.setdefault(subFim, {}).setdefault('', []).append(subInicio)
-        transicoes.setdefault(subFim, {}).setdefault('', []).append(fim)
-
-    return inicio, fim
-
-def insere_kle(args, estados, simbolos, transicoes):
-
-    inicio = cria_novo_estado(estados)
-    fim = cria_novo_estado(estados)
-
-    transicoes.setdefault(inicio, {}).setdefault('', []).append(fim)
-
-    for arg in args:
-        subInicio, subFim = analisa_regex(arg, estados, simbolos, transicoes)
-
-        transicoes.setdefault(inicio, {}).setdefault('', []).append(subInicio)
-        transicoes.setdefault(subFim, {}).setdefault('', []).append(subInicio)
-        transicoes.setdefault(subFim, {}).setdefault('', []).append(fim)
-
-    return inicio, fim
-
-def insere_seq(args, estados, alfabeto, caminhos):
-    fimAnterior = None
-    estado_inicio = None
-
-    for arg in args:
-        estado_inicio2, estado_fim2 = analisa_regex(arg, estados, alfabeto, caminhos)
-
-        if fimAnterior: 
-            caminhos.setdefault(fimAnterior, {}).setdefault('', []).append(estado_inicio2)
-        else:
-            estado_inicio = estado_inicio2
-
-        fimAnterior = estado_fim2
-
-    return estado_inicio, fimAnterior
-
-def insere_altern(args, estados, alfabeto, caminhos):
-    estado_inicio = cria_novo_estado(estados)
-    estado_fim = cria_novo_estado(estados)
-
-    for arg in args:
-        estado_inicio2, estado_fim2 = analisa_regex(arg, estados, alfabeto, caminhos)
-        alfabeto.setdefault(estado_inicio, {}).setdefault('', []).append(estado_inicio2) 
-        alfabeto.setdefault(estado_fim2, {}).setdefault('', []).append(estado_fim) 
-
-    return estado_inicio, estado_fim
-
-def insere_epsilon(estados, caminhos):
-    estado_inicio = cria_novo_estado(estados)
-    estado_fim = cria_novo_estado(estados)
-
-    caminhos[estado_inicio] = {'': [estado_fim]}
-
-    return estado_inicio, estado_fim
-
-def insere_simbolo(simbolo, alfabeto, estados, caminhos):
-    estado_inicio = cria_novo_estado(estados)
-    estado_fim = cria_novo_estado(estados)
-
-    caminhos[estado_inicio] = {simbolo: [estado_fim]}
-
-    if simbolo not in alfabeto:
-        alfabeto.append(simbolo)
-
-    return estado_inicio, estado_fim
-
-def analisa_regex(regex, estados, alfabeto, caminhos):
-
-    operador = regex['op']
-    if 'simb' in regex: 
-        insere_simbolo(regex['simb'], alfabeto, estados, caminhos)
-    elif 'epsilon' in regex:  
-        insere_epsilon(estados, caminhos)
-    elif operador == 'alt':  # operador -> alt
-        insere_altern(regex['args'], estados, alfabeto, caminhos)
-    elif operador == 'seq':  # operador -> seq
-        insere_seq(regex['args'], estados, alfabeto, caminhos)
-    elif operador == 'kle':  # operador -> kle
-        insere_kle(regex['args'], estados, alfabeto, caminhos)
-    elif operador == 'trans': # operador -> trans
-        insere_trans(regex['args'], estados, alfabeto, caminhos)
 
     return
 
-def converter_er_afnd(output_path: str) -> any:
+def insere_simbolo(simbolo):
+    #adiciona simbolo ao alfabeto
+    if simbolo not in alfabeto:
+        alfabeto.append(simbolo)
 
-    alfabeto = []
-    estados = []
-    caminhos = {}
+    #estados novos
+    estado_ini = f'q{len(estados)}'
+    estados.append(estado_ini)
+    estado_fim = f'q{len(estados)}'
+    estados.append(estado_fim)
  
-    #Definir/abrir o caminho do ficheiro  
-    afpath = "exemplo01.json"
-    with open(afpath, "r", encoding="utf-8") as f:
-        af = json.load(f)
+    #adicona caminho
+    caminhos[estado_ini] = {simbolo: [estado_fim]}
+ 
+    #retorna estados
+    return estado_ini, estado_fim
 
-    # Iniciar processo de conversão
-    inicio, fim = analisa_regex(af, estados, alfabeto, caminhos)
+def insere_altern(args):
+    #estados novos
+    estado_ini = f'q{len(estados)}'
+    estados.append(estado_ini)
+    estado_fim = f'q{len(estados)}'
+    estados.append(estado_fim)
+ 
+    for item in args:
+        #analisa argumento
+        estado_ini_2, estado_fim_2 = analisa_regex(item)
+ 
+        #adiciona caminho inicio para o inicio 2
+        caminhos.setdefault(estado_ini, {}).setdefault('', []).append(estado_ini_2)
+ 
+        #adiciona caminho fim para o fim 2
+        caminhos.setdefault(estado_fim_2, {}).setdefault('', []).append(estado_fim)
 
-    # Verificar se o fim não está nas transições, se não tiver adicionar
-    if fim not in caminhos:
-        caminhos[fim] = {'': []}
+    #retorna estados
+    return estado_ini, estado_fim
+
+def insere_seqnc(args):
+    estado_prev = None
+    estado_incio = None
+ 
+    for item in args:
+        # Converter cada arg
+        estado_incio_2, estado_fim_2 = analisa_regex(item)
+ 
+        #não ser o primeiro arg
+        if estado_prev:
+            #cria caminho do estado anterior para o atual
+            caminhos.setdefault(estado_prev, {}).setdefault('', []).append(estado_incio_2)
+        else:
+            #primeiro arg
+            estado_incio = estado_incio_2
+ 
+        #ultimo estado
+        estado_prev = estado_fim_2
+
+    #retorna estados
+    return estado_incio, estado_prev
+
+def insere_kle(args):
+    #estados novos
+    estado_ini = f'q{len(estados)}'
+    estados.append(estado_ini)
+    estado_fim = f'q{len(estados)}'
+    estados.append(estado_fim)
+ 
+    #adiciona caminho epsilon
+    caminhos.setdefault(estado_ini, {}).setdefault('', []).append(estado_fim)
+ 
+    for item in args:
+        # Processar o arg que tem
+        estado_ini_2, estado_fim_2 = analisa_regex(item)
+ 
+        #caminho para o arg inicio do kle
+        caminhos.setdefault(estado_ini, {}).setdefault('', []).append(estado_ini_2)
+ 
+        #caminho do final para o incial
+        caminhos.setdefault(estado_fim_2, {}).setdefault('', []).append(estado_ini_2)
+ 
+        #caminho do fim2 para o fim
+        caminhos.setdefault(estado_fim_2, {}).setdefault('', []).append(estado_fim)
+ 
+    # Retornar o inicio e fim do Kle
+    return estado_ini, estado_fim
+
+def insere_trans(args):
+    #estados novos
+    estado_ini = f'q{len(estados)}'
+    estados.append(estado_ini)
+    estado_fim = f'q{len(estados)}'
+    estados.append(estado_fim)
+ 
+    for item in args:
+        #processa args
+        estado_ini_2, estado_fim_2 = analisa_regex(item)
+ 
+        #caminho incio para o incio 2
+        caminhos.setdefault(estado_ini, {}).setdefault('', []).append(estado_ini_2)
+
+        #caminho fim2 para o inicio2 do arg
+        caminhos.setdefault(estado_fim_2, {}).setdefault('', []).append(estado_ini_2) 
+ 
+        #caminho do arg para o estado final principal
+        caminhos.setdefault(estado_fim_2, {}).setdefault('', []).append(estado_fim)
+ 
+    #retorna estados
+    return estado_ini, estado_fim
+
+def insere_epsilon():
+    #estados novos
+    estado_ini = f'q{len(estados)}'
+    estados.append(estado_ini)
+    estado_fim = f'q{len(estados)}'
+    estados.append(estado_fim)
+ 
+    #caminho inicio -> final
+    caminhos[estado_ini] = {'': [estado_fim]}
+ 
+    #retorna estados
+    return estado_ini, estado_fim
+
+def analisa_regex(regex):
+
+    if simb in regex: #simbolo
+        return insere_simbolo(regex[simb])
+    elif opalt == regex[operator]: #alternancia
+        return insere_altern(regex[args])
+    elif opseq == regex[operator]: #sequencia
+        return insere_seqnc(regex[args])
+    elif opkle == regex[operator]: #kle
+        return insere_kle(regex[args])
+    elif optrans == regex[operator]: #transitivo
+        return insere_trans(regex[args])
+    elif epsilon in regex: #€
+        return insere_epsilon()
+    
+
+def converte_er_anfd()-> any:
+
+    incio, fim = analisa_regex(af)
 
     afnd = {
         "V": alfabeto,
         "Q": estados,
         "delta": caminhos,
-        "q0": inicio,
+        "q0": incio,
         "F": [fim]
     }
 
     return afnd
 
-afnd = converter_er_afnd("")
-print(afnd)
+if exec_convert_er_afnd == True:
+    afnd = converte_er_anfd()
+    salvar_ficheiro(afnd,nome_ficheiro)
