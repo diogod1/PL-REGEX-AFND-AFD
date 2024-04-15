@@ -1,97 +1,137 @@
-import json
+import sys  # Importar módulo sys
+import json # Importar módulo json
+ 
+arquivo = ""
+ 
+# Ler um arquivo JSON
+def read_afnd(file_json):
+    with open(file_json, 'r') as file:  # Abre o arquivo .json
+        afnd = json.load(file) # Carrega o arquivo
+    return afnd
 
-# Dados do AFND fornecidos
-af = {
-    "V": ["a", "b"],
-    "Q": ["q0", "q1", "q2"],
-    "delta": {
-        "q0": {"a": ["q1"], "b": ["q0", "q1"]},
-        "q1": {"a": ["q2"], "b": []},
-        "q2": {"a": ["q2"], "b": ["q1"]}
-    },
-    "q0": "q0",
-    "F": ["q2"]
-}
 
-# Variáveis globais derivadas dos dados do JSON
-V = set(af["V"])
-Q = set(af["Q"])
-delta = af["delta"]
-q0 = af["q0"]
-F = set(af["F"])
+def convert_afnd_to_afd(afnd):
+    V = afnd['V']
+    Q = afnd['Q']
+    delta = afnd['delta']
+    q0 = afnd['q0']
+    F = afnd['F']
+    
+    simbolos = V 
+    estadoInicial = q0 
+    estados = [] 
+    caminhos = {} 
+    estadosFinais = [] 
 
-def state_set_to_string(state_set):
-    """Converte um conjunto de estados em uma string ordenada e única."""
-    return ",".join(sorted(state_set))
+    def process_eplison_close(estado_set):
+        fecho = [estado_set]
+        fila = [estado_set]
 
-def convert_afnd_to_afd(V, Q, delta, q0, F):
-    initial_state_str = state_set_to_string({q0})
-    states = {initial_state_str}
-    transitions = {}
-    unmarked_states = [initial_state_str]
-    final_states = set()
+        while fila:
+            estado = fila.pop()
+            if '' in delta[estado]:
+                for prox_estado in delta[estado]['']:
+                    if prox_estado not in fecho:
+                        fecho.append(prox_estado)
+                        fila.append(prox_estado)
 
-    while unmarked_states:
-        current_state_str = unmarked_states.pop()
-        if current_state_str:
-            current_state_set = set(current_state_str.split(','))
-        else:
-            current_state_set = set()
+        return fecho
 
-        for input_symbol in V:
-            next_state_set = set()
-            for substate in current_state_set:
-                next_states = delta.get(substate, {}).get(input_symbol, [])
-                next_state_set.update(next_states)
-            
-            next_state_str = state_set_to_string(next_state_set)
-            if next_state_str and next_state_str not in states:
-                states.add(next_state_str)
-                unmarked_states.append(next_state_str)
+    estadosIniciais = process_eplison_close(estadoInicial)
+    fila = ['_'.join(sorted(estadosIniciais))]
+    estados.append('_'.join(sorted(estadosIniciais)))
 
-            transitions[f"{current_state_str},{input_symbol}"] = next_state_str if next_state_set else ""
+    while len(fila) != 0:
+        estadoAtual = fila.pop() 
+        estadosAtuais = estadoAtual.split('_')
 
-            if next_state_set and next_state_set.intersection(F):
-                final_states.add(next_state_str)
+        if any(f in estadosAtuais for f in F):
+            if estadoAtual not in estadosFinais:
+                estadosFinais.append(estadoAtual)
+
+        for simbolo in simbolos:
+            novosEstados = set()
+            for estado in estadosAtuais:
+                if simbolo in delta[estado]:
+                    for proximoEstado in delta[estado][simbolo]:
+                        novosEstados.update(process_eplison_close(proximoEstado))
+
+            if len(novosEstados) == 0:
+                continue
+
+            novoEstado = '_'.join(sorted(novosEstados))
+
+            if estadoAtual not in caminhos:
+                caminhos[estadoAtual] = {}
+
+            caminhos[estadoAtual][simbolo] = novoEstado
+
+            if novoEstado not in estados:
+                estados.append(novoEstado)
+                fila.append(novoEstado)
 
     afd = {
-        'states': list(states),
-        'initial_state': initial_state_str,
-        'final_states': list(final_states),
-        'symbols': list(V),
-        'transitions': transitions,
+        "V": list(simbolos),
+        "Q": estados,
+        "delta": caminhos,
+        "q0": '_'.join(sorted(estadosIniciais)), 
+        "F": estadosFinais
     }
+
     return afd
 
-def afd_to_json_string(afd):
-    parts = ['{']
+# Gerar o código Graphviz da AFD
+def generate_graph(afd):
+    lines = ['digraph {']
+    lines.append('    node [shape = doublecircle]; ' + ' '.join(afd['F']) + ';')
+    lines.append('    node [shape = point]; qi;')
+    lines.append('    node [shape = circle];')
+ 
+    # Estado inicial apontando para o primeiro estado
+    lines.append('    qi -> ' + afd['q0'] + ';')
+ 
+    # Adiciona as transições
+    for start_state, transitions in afd['delta'].items(): # Para cada estado de início
+        for input_val, end_states in transitions.items(): # Pode haver mais de uma transição para um mesmo símbolo
+            for end_state in end_states: # Pode haver mais de um estado final
+                lines.append(f'    {start_state} -> {end_state} [label="{input_val}"];')
+ 
+    lines.append('}')
+    dot_representation = '\n'.join(lines)
+ 
+    # Salva o dot_representation em um arquivo
+    with open("graphviz.gv", "w") as file:
+        file.write(dot_representation)
+    # print(dot_representation)
 
-    parts.append('"states": [')
-    parts.append(', '.join(f'"{state}"' for state in afd['states'] if state))
-    parts.append('],')
 
-    parts.append(f'"initial_state": "{afd["initial_state"]}",')
+def save_file(afnd, nome_ficheiro):
 
-    parts.append('"final_states": [')
-    parts.append(', '.join(f'"{state}"' for state in afd['final_states']))
-    parts.append('],')
+    #adicionar .json no fim
+    if not nome_ficheiro.endswith('.json'):
+        nome_ficheiro += ".json"
 
-    parts.append('"symbols": [')
-    parts.append(', '.join(f'"{symbol}"' for symbol in afd['symbols']))
-    parts.append('],')
+    with open(nome_ficheiro, 'w') as ficheiro:
+        json.dump(afnd, ficheiro, indent=4)
 
-    parts.append('"transitions": {')
-    transition_parts = []
-    for transition_key, nextState in afd['transitions'].items():
-        state, symbol = transition_key.split(',')
-        transition_parts.append(f'"{state},{symbol}": "{nextState}"')
-    parts.append(', '.join(transition_parts))
-    parts.append('}')
+    return
 
-    parts.append('}')
-    return ''.join(parts)
-
-# Conversão de AFND para AFD e representação em string JSON
-afd = convert_afnd_to_afd(V, Q, delta, q0, F)
-afd_json_string = afd_to_json_string(afd)
-print(afd_json_string)
+# Assume que o primeiro argumento é o arquivo JSON
+arquivo = sys.argv[1]
+afnd = read_afnd(arquivo)
+afd = convert_afnd_to_afd(afnd)
+ 
+# Verifica se o argumento graphviz foi passado
+if '-graphviz' in sys.argv:
+    generate_graph(afnd)
+ 
+# Verifica se o argumento output foi passado
+elif '-output' in sys.argv:
+    indice_output = sys.argv.index('-output') #Procura a posição do argumento
+    if indice_output + 1 < len(sys.argv):
+        arquivo = sys.argv[indice_output + 1]
+        save_file(afd, arquivo)
+    else:
+        print("Especifique o arquivo de saída com o argumento '-output'.")
+else:
+    print("Comando não reconhecido.")
